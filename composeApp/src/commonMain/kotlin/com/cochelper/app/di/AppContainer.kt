@@ -13,6 +13,7 @@ import com.cochelper.app.data.local.PcDao
 import com.cochelper.app.data.local.TimelineDao
 import com.cochelper.app.data.sync.BackupPayload
 import com.cochelper.app.data.sync.GitHubSync
+import com.cochelper.app.data.sync.mergeBackups
 
 /** 简易手动依赖注入容器。 */
 class AppContainer(
@@ -52,6 +53,17 @@ class AppContainer(
         pcDao.deleteForModule(moduleId)
         fileDao.deleteForModule(moduleId)
         moduleDao.getById(moduleId)?.let { moduleDao.delete(it) }
+    }
+
+    /** 与云端双向同步：先拉最新，再按 last-write-wins 合并，最后推回并落地本地。 */
+    suspend fun syncWithCloud(token: String, repoName: String): Result<String> = runCatching {
+        val full = github.ensureRepo(token, repoName).getOrThrow()
+        val local = exportBackup()
+        val remote = github.fetchBackup(token, full)
+        val merged = if (remote == null) local else mergeBackups(local, remote)
+        github.pushBackup(token, full, merged).getOrThrow()
+        importBackup(merged)
+        "已同步"
     }
 
     /** 用云端快照覆盖本地数据。 */

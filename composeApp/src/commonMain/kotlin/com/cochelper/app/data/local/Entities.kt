@@ -21,6 +21,7 @@ data class ModuleEntity(
     val introText: String = "",
     val photoUri: String = "",
     val createdAt: Long = currentTimeMillis(),
+    val updatedAt: Long = 0,
 )
 
 /** 时间轴 / 大纲节点（支持最多三层嵌套） */
@@ -33,6 +34,7 @@ data class TimelineNodeEntity(
     val parentId: Long? = null,
     val order: Int = 0,
     val createdAt: Long = currentTimeMillis(),
+    val updatedAt: Long = 0,
 )
 
 /** 重要地点 */
@@ -43,6 +45,7 @@ data class LocationEntity(
     val name: String,
     val content: String = "",
     val createdAt: Long = currentTimeMillis(),
+    val updatedAt: Long = 0,
 )
 
 /** 重要 NPC */
@@ -53,6 +56,7 @@ data class NpcEntity(
     val name: String,
     val content: String = "",
     val createdAt: Long = currentTimeMillis(),
+    val updatedAt: Long = 0,
 )
 
 /** PC 调查员档案。moduleId 为 null 表示玩家自己的角色（角色栏），非空表示某模组下的调查员（pc档案）。 */
@@ -76,6 +80,7 @@ data class PcEntity(
     val background: String = "",
     val imageUri: String = "",
     val createdAt: Long = currentTimeMillis(),
+    val updatedAt: Long = 0,
 ) {
     companion object {
         fun defaultSkills(): List<SkillItem> = listOf(
@@ -110,6 +115,7 @@ data class ClueEntity(
     val content: String = "",
     val order: Int = 0,
     val createdAt: Long = currentTimeMillis(),
+    val updatedAt: Long = 0,
 )
 
 /** 模组配套 / 原文文件。web 端文件内容以 base64 存储（contentBase64）。 */
@@ -123,6 +129,7 @@ data class FileEntity(
     val sizeBytes: Long = 0,
     val kind: Int = FILE_COMPANION,
     val createdAt: Long = currentTimeMillis(),
+    val updatedAt: Long = 0,
 ) {
     companion object {
         const val FILE_ORIGINAL = 0
@@ -141,6 +148,7 @@ data class CombatantEntity(
     val status: Int = COMBATANT_ALIVE,
     val ranged: Boolean = false,
     val createdAt: Long = currentTimeMillis(),
+    val updatedAt: Long = 0,
 ) {
     companion object {
         const val COMBATANT_ALIVE = 0
@@ -158,6 +166,7 @@ data class ChaseParticipantEntity(
     val position: Int = 0,
     val role: Int = CHASE_QUARRY,
     val createdAt: Long = currentTimeMillis(),
+    val updatedAt: Long = 0,
 ) {
     companion object {
         const val CHASE_QUARRY = 0

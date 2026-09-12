@@ -1,6 +1,7 @@
 package com.cochelper.app.data.local
 
 import com.cochelper.app.data.sync.BackupPayload
+import com.cochelper.app.platform.currentTimeMillis
 import com.cochelper.app.platform.nextId
 import kotlinx.browser.window
 import kotlinx.coroutines.flow.Flow
@@ -59,11 +60,11 @@ class InMemoryRepository private constructor(initial: BackupPayload) {
         override suspend fun getAll(): List<ModuleEntity> = state.value.modules
         override suspend fun insert(m: ModuleEntity): Long {
             val id = if (m.id == 0L) nextId() else m.id
-            mutate { it.copy(modules = it.modules + m.copy(id = id)) }
+            mutate { it.copy(modules = it.modules + m.copy(id = id, updatedAt = if (m.updatedAt == 0L) currentTimeMillis() else m.updatedAt)) }
             return id
         }
         override suspend fun update(m: ModuleEntity) {
-            mutate { it.copy(modules = it.modules.map { x -> if (x.id == m.id) m else x }) }
+            mutate { it.copy(modules = it.modules.map { x -> if (x.id == m.id) m.copy(updatedAt = currentTimeMillis()) else x }) }
         }
         override suspend fun delete(m: ModuleEntity) {
             mutate { it.copy(modules = it.modules.filterNot { x -> x.id == m.id }) }
@@ -88,11 +89,11 @@ class InMemoryRepository private constructor(initial: BackupPayload) {
         override suspend fun getAllForExport(): List<TimelineNodeEntity> = state.value.timelineNodes
         override suspend fun insert(n: TimelineNodeEntity): Long {
             val id = if (n.id == 0L) nextId() else n.id
-            mutate { it.copy(timelineNodes = it.timelineNodes + n.copy(id = id)) }
+            mutate { it.copy(timelineNodes = it.timelineNodes + n.copy(id = id, updatedAt = if (n.updatedAt == 0L) currentTimeMillis() else n.updatedAt)) }
             return id
         }
         override suspend fun update(n: TimelineNodeEntity) {
-            mutate { it.copy(timelineNodes = it.timelineNodes.map { x -> if (x.id == n.id) n else x }) }
+            mutate { it.copy(timelineNodes = it.timelineNodes.map { x -> if (x.id == n.id) n.copy(updatedAt = currentTimeMillis()) else x }) }
         }
         override suspend fun delete(n: TimelineNodeEntity) {
             mutate { it.copy(timelineNodes = it.timelineNodes.filterNot { x -> x.id == n.id }) }
@@ -111,11 +112,11 @@ class InMemoryRepository private constructor(initial: BackupPayload) {
         override suspend fun getById(id: Long): LocationEntity? = state.value.locations.firstOrNull { it.id == id }
         override suspend fun insert(l: LocationEntity): Long {
             val id = if (l.id == 0L) nextId() else l.id
-            mutate { it.copy(locations = it.locations + l.copy(id = id)) }
+            mutate { it.copy(locations = it.locations + l.copy(id = id, updatedAt = if (l.updatedAt == 0L) currentTimeMillis() else l.updatedAt)) }
             return id
         }
         override suspend fun update(l: LocationEntity) {
-            mutate { it.copy(locations = it.locations.map { x -> if (x.id == l.id) l else x }) }
+            mutate { it.copy(locations = it.locations.map { x -> if (x.id == l.id) l.copy(updatedAt = currentTimeMillis()) else x }) }
         }
         override suspend fun delete(l: LocationEntity) {
             mutate { it.copy(locations = it.locations.filterNot { x -> x.id == l.id }) }
@@ -135,11 +136,11 @@ class InMemoryRepository private constructor(initial: BackupPayload) {
         override suspend fun getById(id: Long): NpcEntity? = state.value.npcs.firstOrNull { it.id == id }
         override suspend fun insert(n: NpcEntity): Long {
             val id = if (n.id == 0L) nextId() else n.id
-            mutate { it.copy(npcs = it.npcs + n.copy(id = id)) }
+            mutate { it.copy(npcs = it.npcs + n.copy(id = id, updatedAt = if (n.updatedAt == 0L) currentTimeMillis() else n.updatedAt)) }
             return id
         }
         override suspend fun update(n: NpcEntity) {
-            mutate { it.copy(npcs = it.npcs.map { x -> if (x.id == n.id) n else x }) }
+            mutate { it.copy(npcs = it.npcs.map { x -> if (x.id == n.id) n.copy(updatedAt = currentTimeMillis()) else x }) }
         }
         override suspend fun delete(n: NpcEntity) {
             mutate { it.copy(npcs = it.npcs.filterNot { x -> x.id == n.id }) }
@@ -163,11 +164,11 @@ class InMemoryRepository private constructor(initial: BackupPayload) {
         override suspend fun getById(id: Long): PcEntity? = state.value.pcs.firstOrNull { it.id == id }
         override suspend fun insert(p: PcEntity): Long {
             val id = if (p.id == 0L) nextId() else p.id
-            mutate { it.copy(pcs = it.pcs + p.copy(id = id)) }
+            mutate { it.copy(pcs = it.pcs + p.copy(id = id, updatedAt = if (p.updatedAt == 0L) currentTimeMillis() else p.updatedAt)) }
             return id
         }
         override suspend fun update(p: PcEntity) {
-            mutate { it.copy(pcs = it.pcs.map { x -> if (x.id == p.id) p else x }) }
+            mutate { it.copy(pcs = it.pcs.map { x -> if (x.id == p.id) p.copy(updatedAt = currentTimeMillis()) else x }) }
         }
         override suspend fun delete(p: PcEntity) {
             mutate { it.copy(pcs = it.pcs.filterNot { x -> x.id == p.id }) }
@@ -185,11 +186,11 @@ class InMemoryRepository private constructor(initial: BackupPayload) {
         override suspend fun getAll(): List<ClueEntity> = state.value.clues
         override suspend fun insert(c: ClueEntity): Long {
             val id = if (c.id == 0L) nextId() else c.id
-            mutate { it.copy(clues = it.clues + c.copy(id = id)) }
+            mutate { it.copy(clues = it.clues + c.copy(id = id, updatedAt = if (c.updatedAt == 0L) currentTimeMillis() else c.updatedAt)) }
             return id
         }
         override suspend fun update(c: ClueEntity) {
-            mutate { it.copy(clues = it.clues.map { x -> if (x.id == c.id) c else x }) }
+            mutate { it.copy(clues = it.clues.map { x -> if (x.id == c.id) c.copy(updatedAt = currentTimeMillis()) else x }) }
         }
         override suspend fun delete(c: ClueEntity) {
             mutate { it.copy(clues = it.clues.filterNot { x -> x.id == c.id }) }
@@ -208,7 +209,7 @@ class InMemoryRepository private constructor(initial: BackupPayload) {
         override suspend fun getAll(): List<FileEntity> = state.value.files
         override suspend fun insert(f: FileEntity): Long {
             val id = if (f.id == 0L) nextId() else f.id
-            mutate { it.copy(files = it.files + f.copy(id = id)) }
+            mutate { it.copy(files = it.files + f.copy(id = id, updatedAt = if (f.updatedAt == 0L) currentTimeMillis() else f.updatedAt)) }
             return id
         }
         override suspend fun delete(f: FileEntity) {
@@ -233,11 +234,11 @@ class InMemoryRepository private constructor(initial: BackupPayload) {
         override suspend fun getAll(): List<CombatantEntity> = state.value.combatants
         override suspend fun insert(c: CombatantEntity): Long {
             val id = if (c.id == 0L) nextId() else c.id
-            mutate { it.copy(combatants = it.combatants + c.copy(id = id)) }
+            mutate { it.copy(combatants = it.combatants + c.copy(id = id, updatedAt = if (c.updatedAt == 0L) currentTimeMillis() else c.updatedAt)) }
             return id
         }
         override suspend fun update(c: CombatantEntity) {
-            mutate { it.copy(combatants = it.combatants.map { x -> if (x.id == c.id) c else x }) }
+            mutate { it.copy(combatants = it.combatants.map { x -> if (x.id == c.id) c.copy(updatedAt = currentTimeMillis()) else x }) }
         }
         override suspend fun delete(c: CombatantEntity) {
             mutate { it.copy(combatants = it.combatants.filterNot { x -> x.id == c.id }) }
@@ -251,11 +252,11 @@ class InMemoryRepository private constructor(initial: BackupPayload) {
         override suspend fun getAll(): List<ChaseParticipantEntity> = state.value.chaseParticipants
         override suspend fun insert(c: ChaseParticipantEntity): Long {
             val id = if (c.id == 0L) nextId() else c.id
-            mutate { it.copy(chaseParticipants = it.chaseParticipants + c.copy(id = id)) }
+            mutate { it.copy(chaseParticipants = it.chaseParticipants + c.copy(id = id, updatedAt = if (c.updatedAt == 0L) currentTimeMillis() else c.updatedAt)) }
             return id
         }
         override suspend fun update(c: ChaseParticipantEntity) {
-            mutate { it.copy(chaseParticipants = it.chaseParticipants.map { x -> if (x.id == c.id) c else x }) }
+            mutate { it.copy(chaseParticipants = it.chaseParticipants.map { x -> if (x.id == c.id) c.copy(updatedAt = currentTimeMillis()) else x }) }
         }
         override suspend fun delete(c: ChaseParticipantEntity) {
             mutate { it.copy(chaseParticipants = it.chaseParticipants.filterNot { x -> x.id == c.id }) }

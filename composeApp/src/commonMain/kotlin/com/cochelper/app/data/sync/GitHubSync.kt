@@ -105,6 +105,13 @@ class GitHubSync {
         json.decodeFromString(BackupPayload.serializer(), decoded)
     }
 
+    /** 拉取云端快照；云端还没有备份文件时返回 null（供合并用，而非报错）。 */
+    suspend fun fetchBackup(token: String, repoFullName: String): BackupPayload? {
+        val content = fetchContent(token, repoFullName, backupPath) ?: return null
+        val decoded = base64Decode(content.content.orEmpty()).decodeToString()
+        return json.decodeFromString(BackupPayload.serializer(), decoded)
+    }
+
     private suspend fun fetchContent(token: String, repoFullName: String, path: String): GithubContent? {
         val resp = httpRequest("GET", "https://api.github.com/repos/$repoFullName/contents/$path", headers(token))
         if (resp.status == 404) return null

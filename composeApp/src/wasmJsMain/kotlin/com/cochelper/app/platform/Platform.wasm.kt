@@ -18,7 +18,11 @@ import org.w3c.dom.url.URL
 import org.w3c.files.Blob
 import org.w3c.files.BlobPropertyBag
 import org.w3c.fetch.Headers
+import org.w3c.fetch.RequestCache
+import org.w3c.fetch.RequestCredentials
 import org.w3c.fetch.RequestInit
+import org.w3c.fetch.RequestMode
+import org.w3c.fetch.RequestRedirect
 import org.w3c.fetch.Response
 
 @OptIn(ExperimentalEncodingApi::class)
@@ -73,7 +77,18 @@ actual suspend fun httpRequest(
 ): HttpResult {
     val h = Headers()
     headers.forEach { (k, v) -> h.append(k, v) }
-    val init = RequestInit(method = method, headers = h, body = body?.toJsString())
+    // Kotlin/Wasm 用 RequestInit(...) 构造时会把未指定的枚举字段（cache 等）置为 null，
+    // 浏览器 fetch 会拒绝 null 的枚举值（"null is not a valid enum value of type RequestCache"）。
+    // 显式补上各枚举字段的合法默认值即可。
+    val init = RequestInit(
+        method = method,
+        headers = h,
+        body = body?.toJsString(),
+        cache = "default".toJsString().unsafeCast<RequestCache>(),
+        credentials = "same-origin".toJsString().unsafeCast<RequestCredentials>(),
+        mode = "cors".toJsString().unsafeCast<RequestMode>(),
+        redirect = "follow".toJsString().unsafeCast<RequestRedirect>(),
+    )
     val response: Response = window.fetch(url, init).await()
     val text = response.text().await<JsString>().toString()
     return HttpResult(response.status.toInt(), text)

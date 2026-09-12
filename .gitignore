@@ -1,0 +1,28 @@
+# Gradle / Kotlin
+.gradle/
+.kotlin/
+build/
+
+# Kotlin/JS 生成物：只保留 yarn.lock 锁文件
+kotlin-js-store/wasm/*
+!kotlin-js-store/wasm/yarn.lock
+
+# 本地配置 & 密钥（绝不能提交）
+local.properties
+keystore.properties
+*.keystore
+*.jks
+
+# 本机工具链脚本
+.toolchain-setup.log
+.toolchain-setup.sh
+
+# IDE / OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/

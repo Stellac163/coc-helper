@@ -44,6 +44,12 @@ data class GithubPutBody(
 data class GitShaResponse(val sha: String)
 
 @Serializable
+data class GitBlobResponse(
+    val content: String,
+    val encoding: String = "base64",
+)
+
+@Serializable
 data class GitRefResponse(val `object`: GitShaResponse)
 
 @Serializable
@@ -240,13 +246,14 @@ class GitHubSync {
     /**
      * 读取并解析云端备份。content 字段为空时有两种情况：
      * - 空文件（0 字节）→ 视为「无备份」，返回 null；
-     * - 超过 1MB 的大文件（GitHub 不在 content 里返回内容）→ 用 raw 媒体类型走同一 API 端点取原始内容。
+     * - 超过 1MB 的大文件（GitHub 不在 content 里返回内容）→ 用 Git Data API 的 blob 端点取内容。
      */
     private suspend fun readBackup(token: String, repoFullName: String): BackupPayload? {
         val file = fetchContent(token, repoFullName, backupPath) ?: return null
         val raw = if (file.content.isNullOrBlank()) {
-            if (file.size == null || file.size == 0L) return null
-            fetchRawContent(token, repoFullName, backupPath)
+            val sha = file.sha
+            if (sha == null || file.size == null || file.size == 0L) return null
+            fetchBlobContent(token, repoFullName, sha)
         } else {
             base64Decode(file.content!!).decodeToString()
         }
@@ -258,15 +265,20 @@ class GitHubSync {
         }
     }
 
-    /** 用 raw 媒体类型取文件原始内容（不走跨域的 raw.githubusercontent.com，避免 CORS 失败）。 */
-    private suspend fun fetchRawContent(token: String, repoFullName: String, path: String): String {
+    /**
+     * 用 Git Data API 的 blob 端点读大文件：content 字段始终以 base64 返回（≤100MB）。
+     * 不走 Contents API 的 raw 媒体类型——那对 >1MB 文件会随 Accept 头是否被识别而退回
+     * JSON 元数据，元数据被 ignoreUnknownKeys 静默解析成空 BackupPayload，导致本地被抹空。
+     */
+    private suspend fun fetchBlobContent(token: String, repoFullName: String, sha: String): String {
         val resp = httpRequest(
             "GET",
-            "https://api.github.com/repos/$repoFullName/contents/$path",
-            headers(token) + ("Accept" to "application/vnd.github.raw"),
+            "https://api.github.com/repos/$repoFullName/git/blobs/$sha",
+            headers(token),
         )
-        if (resp.status !in 200..299) error("读取云端备份失败 HTTP ${resp.status}")
-        return resp.body
+        if (resp.status !in 200..299) error("读取云端备份 blob 失败 HTTP ${resp.status}")
+        val blob = json.decodeFromString(GitBlobResponse.serializer(), resp.body)
+        return base64Decode(blob.content).decodeToString()
     }
 
     private suspend fun fetchContent(token: String, repoFullName: String, path: String): GithubContent? {

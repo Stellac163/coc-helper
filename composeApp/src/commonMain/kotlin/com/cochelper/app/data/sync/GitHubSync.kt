@@ -27,7 +27,6 @@ data class GithubContent(
     val sha: String? = null,
     val content: String? = null,
     val size: Long? = null,
-    @SerialName("download_url") val downloadUrl: String? = null,
 )
 
 @Serializable
@@ -37,6 +36,39 @@ data class GithubPutBody(
     val sha: String? = null,
     val branch: String = "main",
 )
+
+// —— Git Data API（用于 >1MB 大文件的读写，绕过 Contents API 的 1MB 限制）——
+@Serializable
+data class GitShaResponse(val sha: String)
+
+@Serializable
+data class GitRefResponse(val `object`: GitShaResponse)
+
+@Serializable
+data class GitCommitInfoResponse(val sha: String, val tree: GitShaResponse)
+
+@Serializable
+data class GitBlobBody(val content: String, val encoding: String = "base64")
+
+@Serializable
+data class GitTreeEntry(
+    val path: String,
+    val mode: String = "100644",
+    val type: String = "blob",
+    val sha: String,
+)
+
+@Serializable
+data class GitTreeBody(
+    @SerialName("base_tree") val baseTree: String,
+    val tree: List<GitTreeEntry>,
+)
+
+@Serializable
+data class GitCommitBody(val message: String, val tree: String, val parents: List<String>)
+
+@Serializable
+data class GitUpdateRefBody(val sha: String, val force: Boolean = false)
 
 class GitHubSync {
 
@@ -81,24 +113,86 @@ class GitHubSync {
 
     suspend fun pushBackup(token: String, repoFullName: String, payload: BackupPayload): Result<Unit> =
         runCatching {
-            val content = base64Encode(json.encodeToString(BackupPayload.serializer(), payload).encodeToByteArray())
-            val existing = fetchContent(token, repoFullName, backupPath)
-            val body = json.encodeToString(
-                GithubPutBody.serializer(),
-                GithubPutBody(
-                    message = "sync: CocHelper backup",
-                    content = content,
-                    sha = existing?.sha,
-                )
-            )
-            val resp = httpRequest(
-                "PUT",
-                "https://api.github.com/repos/$repoFullName/contents/$backupPath",
-                headers(token),
-                body
-            )
-            if (resp.status !in 200..299) error("上传失败 HTTP ${resp.status}")
+            val encoded = base64Encode(json.encodeToString(BackupPayload.serializer(), payload).encodeToByteArray())
+            // Contents API 的 content（base64）上限约 1MB；超过则改走 Git Data API。
+            if (encoded.length < 900_000) pushSmall(token, repoFullName, encoded)
+            else pushLarge(token, repoFullName, encoded)
         }
+
+    /** 小文件（≤1MB）直接走 Contents API。 */
+    private suspend fun pushSmall(token: String, repoFullName: String, encoded: String) {
+        val existing = fetchContent(token, repoFullName, backupPath)
+        val body = json.encodeToString(
+            GithubPutBody.serializer(),
+            GithubPutBody(
+                message = "sync: CocHelper backup",
+                content = encoded,
+                sha = existing?.sha,
+            )
+        )
+        val resp = httpRequest(
+            "PUT",
+            "https://api.github.com/repos/$repoFullName/contents/$backupPath",
+            headers(token),
+            body
+        )
+        if (resp.status !in 200..299) error("上传失败 HTTP ${resp.status}")
+    }
+
+    /** 大文件（>1MB）走 Git Data API：blob → tree → commit → 更新 main 分支。 */
+    private suspend fun pushLarge(token: String, repoFullName: String, encoded: String) {
+        // 1. 创建 blob
+        val blobResp = httpRequest(
+            "POST",
+            "https://api.github.com/repos/$repoFullName/git/blobs",
+            headers(token),
+            json.encodeToString(GitBlobBody.serializer(), GitBlobBody(content = encoded))
+        )
+        if (blobResp.status !in 200..299) error("创建 blob 失败 HTTP ${blobResp.status}")
+        val blobSha = json.decodeFromString(GitShaResponse.serializer(), blobResp.body).sha
+
+        // 2. 取 main 分支当前 commit
+        val refResp = httpRequest("GET", "https://api.github.com/repos/$repoFullName/git/refs/heads/main", headers(token))
+        if (refResp.status !in 200..299) error("读取分支失败 HTTP ${refResp.status}")
+        val parentSha = json.decodeFromString(GitRefResponse.serializer(), refResp.body).`object`.sha
+
+        // 3. 取 commit 的 tree
+        val commitResp = httpRequest("GET", "https://api.github.com/repos/$repoFullName/git/commits/$parentSha", headers(token))
+        if (commitResp.status !in 200..299) error("读取提交失败 HTTP ${commitResp.status}")
+        val baseTree = json.decodeFromString(GitCommitInfoResponse.serializer(), commitResp.body).tree.sha
+
+        // 4. 建 tree（替换/新增 backupPath）
+        val treeResp = httpRequest(
+            "POST",
+            "https://api.github.com/repos/$repoFullName/git/trees",
+            headers(token),
+            json.encodeToString(
+                GitTreeBody.serializer(),
+                GitTreeBody(baseTree = baseTree, tree = listOf(GitTreeEntry(path = backupPath, sha = blobSha)))
+            )
+        )
+        if (treeResp.status !in 200..299) error("创建 tree 失败 HTTP ${treeResp.status}")
+        val treeSha = json.decodeFromString(GitShaResponse.serializer(), treeResp.body).sha
+
+        // 5. 建 commit
+        val newCommitResp = httpRequest(
+            "POST",
+            "https://api.github.com/repos/$repoFullName/git/commits",
+            headers(token),
+            json.encodeToString(GitCommitBody.serializer(), GitCommitBody(message = "sync: CocHelper backup", tree = treeSha, parents = listOf(parentSha)))
+        )
+        if (newCommitResp.status !in 200..299) error("创建提交失败 HTTP ${newCommitResp.status}")
+        val newCommitSha = json.decodeFromString(GitShaResponse.serializer(), newCommitResp.body).sha
+
+        // 6. 更新 main 分支 ref
+        val updateResp = httpRequest(
+            "PATCH",
+            "https://api.github.com/repos/$repoFullName/git/refs/heads/main",
+            headers(token),
+            json.encodeToString(GitUpdateRefBody.serializer(), GitUpdateRefBody(sha = newCommitSha))
+        )
+        if (updateResp.status !in 200..299) error("更新分支失败 HTTP ${updateResp.status}")
+    }
 
     suspend fun pullBackup(token: String, repoFullName: String): Result<BackupPayload> = runCatching {
         readBackup(token, repoFullName) ?: error("云端尚未有备份数据")
@@ -111,16 +205,13 @@ class GitHubSync {
     /**
      * 读取并解析云端备份。content 字段为空时有两种情况：
      * - 空文件（0 字节）→ 视为「无备份」，返回 null；
-     * - 超过 1MB 的大文件（GitHub 不在 content 里返回内容）→ 走 [GithubContent.downloadUrl] 取原始内容。
+     * - 超过 1MB 的大文件（GitHub 不在 content 里返回内容）→ 用 raw 媒体类型走同一 API 端点取原始内容。
      */
     private suspend fun readBackup(token: String, repoFullName: String): BackupPayload? {
         val file = fetchContent(token, repoFullName, backupPath) ?: return null
         val raw = if (file.content.isNullOrBlank()) {
             if (file.size == null || file.size == 0L) return null
-            val url = file.downloadUrl ?: return null
-            val resp = httpRequest("GET", url, headers(token))
-            if (resp.status !in 200..299) error("读取云端备份失败 HTTP ${resp.status}")
-            resp.body
+            fetchRawContent(token, repoFullName, backupPath)
         } else {
             base64Decode(file.content!!).decodeToString()
         }
@@ -130,6 +221,17 @@ class GitHubSync {
         } catch (t: Throwable) {
             throw IllegalArgumentException("云端备份解析失败（size=${file.size}）：${t.message}")
         }
+    }
+
+    /** 用 raw 媒体类型取文件原始内容（不走跨域的 raw.githubusercontent.com，避免 CORS 失败）。 */
+    private suspend fun fetchRawContent(token: String, repoFullName: String, path: String): String {
+        val resp = httpRequest(
+            "GET",
+            "https://api.github.com/repos/$repoFullName/contents/$path",
+            headers(token) + ("Accept" to "application/vnd.github.raw"),
+        )
+        if (resp.status !in 200..299) error("读取云端备份失败 HTTP ${resp.status}")
+        return resp.body
     }
 
     private suspend fun fetchContent(token: String, repoFullName: String, path: String): GithubContent? {

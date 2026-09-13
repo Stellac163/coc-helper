@@ -5,7 +5,9 @@ import com.cochelper.app.platform.currentTimeMillis
 import com.cochelper.app.platform.nextId
 import kotlinx.browser.window
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.serialization.json.Json
@@ -17,10 +19,19 @@ import kotlinx.serialization.json.Json
  * 由于各 DAO 接口存在同名方法（getAll/deleteAll/observeAll 等）但返回类型不同，
  * 无法用一个类同时实现全部接口，故拆成多个内部类，共享同一个 state。
  */
-class InMemoryRepository private constructor(initial: BackupPayload) {
+class InMemoryRepository private constructor(initial: BackupPayload) : BackupStore {
 
     private val state = MutableStateFlow(initial)
     private val json = Json { ignoreUnknownKeys = true }
+
+    private val _changes = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    override val changes: SharedFlow<Unit> = _changes
+
+    /** 用云端快照整体覆盖本地（不发出 [changes]，避免同步写回时触发自动同步死循环）。 */
+    override suspend fun replaceAll(payload: BackupPayload) {
+        state.value = payload
+        persist()
+    }
 
     private fun persist() {
         val encoded = json.encodeToString(BackupPayload.serializer(), state.value)
@@ -36,6 +47,7 @@ class InMemoryRepository private constructor(initial: BackupPayload) {
     private fun mutate(block: (BackupPayload) -> BackupPayload) {
         state.update(block)
         persist()
+        _changes.tryEmit(Unit)
     }
 
     private fun <T> observe(selector: (BackupPayload) -> List<T>): Flow<List<T>> = state.map(selector)
@@ -49,6 +61,7 @@ class InMemoryRepository private constructor(initial: BackupPayload) {
     val fileDao: FileDao = FileDaoImpl()
     val combatantDao: CombatantDao = CombatantDaoImpl()
     val chaseDao: ChaseParticipantDao = ChaseDaoImpl()
+    val chasePointDao: ChasePointDao = ChasePointDaoImpl()
 
     private inner class ModuleDaoImpl : ModuleDao {
         override fun observeAll(): Flow<List<ModuleEntity>> =
@@ -262,6 +275,24 @@ class InMemoryRepository private constructor(initial: BackupPayload) {
             mutate { it.copy(chaseParticipants = it.chaseParticipants.filterNot { x -> x.id == c.id }) }
         }
         override suspend fun deleteAll() { mutate { it.copy(chaseParticipants = emptyList()) } }
+    }
+
+    private inner class ChasePointDaoImpl : ChasePointDao {
+        override fun observeAll(): Flow<List<ChasePointEntity>> =
+            observe { it.chasePoints.sortedWith(compareBy({ p -> p.order }, { p -> p.createdAt })) }
+        override suspend fun getAll(): List<ChasePointEntity> = state.value.chasePoints
+        override suspend fun insert(p: ChasePointEntity): Long {
+            val id = if (p.id == 0L) nextId() else p.id
+            mutate { it.copy(chasePoints = it.chasePoints + p.copy(id = id, updatedAt = if (p.updatedAt == 0L) currentTimeMillis() else p.updatedAt)) }
+            return id
+        }
+        override suspend fun update(p: ChasePointEntity) {
+            mutate { it.copy(chasePoints = it.chasePoints.map { x -> if (x.id == p.id) p.copy(updatedAt = currentTimeMillis()) else x }) }
+        }
+        override suspend fun delete(p: ChasePointEntity) {
+            mutate { it.copy(chasePoints = it.chasePoints.filterNot { x -> x.id == p.id }) }
+        }
+        override suspend fun deleteAll() { mutate { it.copy(chasePoints = emptyList()) } }
     }
 
     companion object {

@@ -101,3 +101,12 @@ interface ChaseParticipantDao {
     suspend fun delete(c: ChaseParticipantEntity)
     suspend fun deleteAll()
 }
+
+interface ChasePointDao {
+    fun observeAll(): Flow<List<ChasePointEntity>>
+    suspend fun getAll(): List<ChasePointEntity>
+    suspend fun insert(p: ChasePointEntity): Long
+    suspend fun update(p: ChasePointEntity)
+    suspend fun delete(p: ChasePointEntity)
+    suspend fun deleteAll()
+}

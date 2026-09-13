@@ -53,6 +53,11 @@ fun App(container: AppContainer) {
         themeMode = container.settings.settings.first().themeMode
     }
 
+    // 改动后防抖自动同步（token 未配置时自动跳过）
+    LaunchedEffect(Unit) {
+        container.autoSyncLoop()
+    }
+
     val navController = rememberNavController()
     BrowserBackHandler(navController)
 

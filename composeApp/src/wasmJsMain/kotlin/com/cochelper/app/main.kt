@@ -22,9 +22,11 @@ fun main() {
         fileDao = repo.fileDao,
         combatantDao = repo.combatantDao,
         chaseDao = repo.chaseDao,
+        chasePointDao = repo.chasePointDao,
         settings = WebSettingsStore(),
         github = GitHubSync(),
         files = WebFileStore(),
+        backupStore = repo,
     )
     ComposeViewport(document.body!!) {
         App(container)

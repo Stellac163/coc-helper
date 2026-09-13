@@ -158,13 +158,23 @@ data class CombatantEntity(
     }
 }
 
+/** 追逐战的「点位」（地点），沿一条轨迹按 [order] 排列。 */
+@Serializable
+data class ChasePointEntity(
+    val id: Long = 0,
+    val name: String,
+    val order: Int = 0,
+    val createdAt: Long = currentTimeMillis(),
+    val updatedAt: Long = 0,
+)
+
 /** 追逐战参与者 */
 @Serializable
 data class ChaseParticipantEntity(
     val id: Long = 0,
     val name: String,
     val mov: Int = 8,
-    val position: Int = 0,
+    val pointId: Long = 0,
     val role: Int = CHASE_QUARRY,
     val createdAt: Long = currentTimeMillis(),
     val updatedAt: Long = 0,

@@ -43,6 +43,7 @@ fun mergeBackups(local: BackupPayload, remote: BackupPayload): BackupPayload {
         clues = mergeById(local.clues, remote.clues, { it.id }, { it.updatedAt }),
         combatants = mergeById(local.combatants, remote.combatants, { it.id }, { it.updatedAt }),
         chaseParticipants = mergeById(local.chaseParticipants, remote.chaseParticipants, { it.id }, { it.updatedAt }),
+        chasePoints = mergeById(local.chasePoints, remote.chasePoints, { it.id }, { it.updatedAt }),
         files = mergeById(local.files, remote.files, { it.id }, { it.updatedAt }),
     )
 }

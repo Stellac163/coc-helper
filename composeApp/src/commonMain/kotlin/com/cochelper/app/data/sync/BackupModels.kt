@@ -1,6 +1,7 @@
 package com.cochelper.app.data.sync
 
 import com.cochelper.app.data.local.ChaseParticipantEntity
+import com.cochelper.app.data.local.ChasePointEntity
 import com.cochelper.app.data.local.ClueEntity
 import com.cochelper.app.data.local.CombatantEntity
 import com.cochelper.app.data.local.FileEntity
@@ -24,5 +25,6 @@ data class BackupPayload(
     val clues: List<ClueEntity> = emptyList(),
     val combatants: List<CombatantEntity> = emptyList(),
     val chaseParticipants: List<ChaseParticipantEntity> = emptyList(),
+    val chasePoints: List<ChasePointEntity> = emptyList(),
     val files: List<FileEntity> = emptyList(),
 )

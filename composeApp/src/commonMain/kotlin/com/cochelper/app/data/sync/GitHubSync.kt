@@ -81,12 +81,17 @@ class GitHubSync {
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    private fun headers(token: String): Map<String, String> = mapOf(
-        "Authorization" to "Bearer ${token.trim()}",
-        "Accept" to "application/vnd.github+json",
-        "X-GitHub-Api-Version" to "2022-11-28",
-        "Content-Type" to "application/json",
-    )
+    private fun headers(token: String): Map<String, String> {
+        // 令牌只能是可见 ASCII；剔除误粘入的空格/换行/全角/不可见字符，
+        // 否则浏览器 Headers.append 会抛 "non ISO-8859-1 code point"
+        val clean = token.filter { it.code in 0x21..0x7E }
+        return mapOf(
+            "Authorization" to "Bearer $clean",
+            "Accept" to "application/vnd.github+json",
+            "X-GitHub-Api-Version" to "2022-11-28",
+            "Content-Type" to "application/json",
+        )
+    }
 
     /** 校验 token 并返回登录用户信息。 */
     suspend fun getUser(token: String): Result<GithubUser> = runCatching {

@@ -16,10 +16,6 @@ import com.cochelper.app.data.local.TimelineDao
 import com.cochelper.app.data.sync.BackupPayload
 import com.cochelper.app.data.sync.GitHubSync
 import com.cochelper.app.data.sync.isEmptyData
-import com.cochelper.app.data.sync.mergeBackups
-import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -68,47 +64,30 @@ class AppContainer(
         moduleDao.getById(moduleId)?.let { moduleDao.delete(it) }
     }
 
-    /** 与云端双向同步：先拉最新，再按 last-write-wins 合并，最后推回并落地本地。 */
-    suspend fun syncWithCloud(token: String, repoName: String): Result<String> = runCatching {
+    /** 上传：用本地整体覆盖云端（单向，不做合并）。 */
+    suspend fun uploadToCloud(token: String, repoName: String): Result<String> = runCatching {
         syncMutex.withLock {
             val full = github.ensureRepo(token, repoName).getOrThrow()
             val local = exportBackup()
-            val remote = github.fetchBackup(token, full)
-            val merged = if (remote == null) local else mergeBackups(local, remote)
-            // 合并结果是空数据时不推云端：防止「空设备」在读取失败时把云端已有备份抹成空文件
-            if (!merged.isEmptyData()) {
-                github.pushBackup(token, full, merged).getOrThrow()
-            }
-            importBackup(merged)
-            "已同步"
+            // 本地无数据时不上传，避免把云端已有备份抹成空文件
+            if (local.isEmptyData()) return@withLock "本地无数据，未上传（以免清空云端）"
+            github.pushBackup(token, full, local).getOrThrow()
+            "已上传，云端已被本地覆盖"
         }
     }
 
-    /** 用云端快照整体覆盖本地数据（不触发自动同步）。 */
+    /** 恢复：用云端整体覆盖本地（单向，不做合并）。 */
+    suspend fun restoreFromCloud(token: String, repoName: String): Result<String> = runCatching {
+        syncMutex.withLock {
+            val full = github.ensureRepo(token, repoName).getOrThrow()
+            val payload = github.pullBackup(token, full).getOrThrow()
+            importBackup(payload)
+            "已从云端恢复，本地已被覆盖"
+        }
+    }
+
+    /** 用云端快照整体覆盖本地数据。 */
     suspend fun importBackup(payload: BackupPayload) {
         backupStore.replaceAll(payload)
-    }
-
-    /** 启动时若已配置 token，做一次双向同步，让本机打开即与云端对齐（多端一致的关键）。 */
-    suspend fun syncIfConfigured() {
-        val s = settings.settings.first()
-        val token = s.githubToken
-        if (token.isBlank()) return
-        syncWithCloud(token, s.repoName.ifBlank { "coc-helper-backup" })
-            .onFailure { println("[startupSync] 启动同步失败：${it.message}") }
-    }
-
-    /** 监听本地变更，防抖 2 秒后若已配置 token 则自动双向同步（与 life-manager 的「改动即同步」一致）。 */
-    @OptIn(FlowPreview::class)
-    suspend fun autoSyncLoop() {
-        backupStore.changes
-            .debounce(2000L)
-            .collect {
-                val s = settings.settings.first()
-                val token = s.githubToken
-                if (token.isBlank()) return@collect
-                syncWithCloud(token, s.repoName.ifBlank { "coc-helper-backup" })
-                    .onFailure { println("[autoSync] 自动同步失败：${it.message}") }
-            }
     }
 }

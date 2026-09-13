@@ -20,8 +20,8 @@ import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -88,28 +88,26 @@ fun LoginScreen(navController: NavHostController) {
         }
     }
 
-    fun sync() {
+    fun upload() {
         scope.launch {
             loading = true
             val repo = repoName.ifBlank { "coc-helper-backup" }
             container.settings.setRepoName(repo)
-            container.syncWithCloud(token, repo).onSuccess { msg ->
+            container.uploadToCloud(token, repo).onSuccess { msg ->
                 notify(msg)
-            }.onFailure { notify("同步失败：${it.message}") }
+            }.onFailure { notify("上传失败：${it.message}") }
             loading = false
         }
     }
 
-    fun pull() {
+    fun restore() {
         scope.launch {
             loading = true
-            runCatching {
-                val repo = repoName.ifBlank { "coc-helper-backup" }
-                val full = container.github.ensureRepo(token, repo).getOrThrow()
-                val payload = container.github.pullBackup(token, full).getOrThrow()
-                container.importBackup(payload)
-            }.onSuccess { notify("已从云端恢复（本地数据被覆盖）") }
-                .onFailure { notify("恢复失败：${it.message}") }
+            val repo = repoName.ifBlank { "coc-helper-backup" }
+            container.settings.setRepoName(repo)
+            container.restoreFromCloud(token, repo).onSuccess { msg ->
+                notify(msg)
+            }.onFailure { notify("恢复失败：${it.message}") }
             loading = false
         }
     }
@@ -154,7 +152,7 @@ fun LoginScreen(navController: NavHostController) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                "使用 GitHub 私有仓库实现多端同步。令牌仅保存在本机。\n「同步」会合并本地与云端（后写胜出），不会覆盖丢失数据。",
+                "使用 GitHub 私有仓库备份。令牌仅保存在本机。\n「上传」用本地覆盖云端；「从云端恢复」用云端覆盖本地（单向，不合并）。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -214,19 +212,19 @@ fun LoginScreen(navController: NavHostController) {
 
             if (settings.githubToken.isNotBlank() || token.isNotBlank()) {
                 Button(
-                    onClick = { sync() },
+                    onClick = { upload() },
                     enabled = token.isNotBlank() && !loading,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),
                     shape = RoundedCornerShape(28.dp),
                 ) {
-                    Icon(Icons.Filled.Sync, contentDescription = null)
+                    Icon(Icons.Filled.CloudUpload, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("同步")
+                    Text("上传（覆盖云端）")
                 }
                 OutlinedButton(
-                    onClick = { pull() },
+                    onClick = { restore() },
                     enabled = token.isNotBlank() && !loading,
                     modifier = Modifier
                         .fillMaxWidth()

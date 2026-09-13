@@ -460,7 +460,8 @@ private fun BackgroundTab(pc: PcEntity, onChange: (PcEntity) -> Unit) {
         Spacer(Modifier.height(4.dp))
         LabeledField("外貌", pc.appearance) { onChange(pc.copy(appearance = it)) }
         LabeledField("信仰", pc.beliefs) { onChange(pc.copy(beliefs = it)) }
-        LabeledField("重要之人", pc.importantPlaces) { onChange(pc.copy(importantPlaces = it)) }
+        LabeledField("重要之人", pc.importantPeople) { onChange(pc.copy(importantPeople = it)) }
+        LabeledField("重要之地", pc.importantPlaces) { onChange(pc.copy(importantPlaces = it)) }
         LabeledField("贵重物品", pc.valuables) { onChange(pc.copy(valuables = it)) }
         LabeledField("性格", pc.traits) { onChange(pc.copy(traits = it)) }
         LabeledField("伤痕", pc.wounds) { onChange(pc.copy(wounds = it)) }

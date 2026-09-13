@@ -72,6 +72,7 @@ data class PcEntity(
     val attributes: List<AttributeItem> = defaultAttributes(),
     val appearance: String = "",
     val beliefs: String = "",
+    val importantPeople: String = "",
     val importantPlaces: String = "",
     val valuables: String = "",
     val traits: String = "",

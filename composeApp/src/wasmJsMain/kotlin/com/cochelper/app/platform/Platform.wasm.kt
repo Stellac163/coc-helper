@@ -95,7 +95,14 @@ actual suspend fun httpRequest(
         // referrerPolicy 在 kotlinx-browser 0.5.0 里是 JsAny?（无枚举类），用 JsString 传合法枚举值
         referrerPolicy = "strict-origin-when-cross-origin".toJsString(),
     )
-    val response: Response = window.fetch(url, init).await()
+    println("[http] $method $url")
+    val response: Response = try {
+        window.fetch(url, init).await()
+    } catch (t: Throwable) {
+        // 浏览器 fetch 因 CORS/断网等 reject 时只抛 "Failed to fetch"，不带 URL；
+        // 这里补上 method+url，方便定位到底是哪个请求失败。
+        throw RuntimeException("fetch $method $url 失败：${t.message}")
+    }
     val text = response.text().await<JsString>().toString()
     return HttpResult(response.status.toInt(), text)
 }

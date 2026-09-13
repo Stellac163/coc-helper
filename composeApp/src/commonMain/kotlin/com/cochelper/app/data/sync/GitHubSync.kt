@@ -4,6 +4,7 @@ import com.cochelper.app.platform.HttpResult
 import com.cochelper.app.platform.base64Decode
 import com.cochelper.app.platform.base64Encode
 import com.cochelper.app.platform.httpRequest
+import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -49,13 +50,18 @@ data class GitRefResponse(val `object`: GitShaResponse)
 data class GitCommitInfoResponse(val sha: String, val tree: GitShaResponse)
 
 @Serializable
-data class GitBlobBody(val content: String, val encoding: String = "base64")
+data class GitBlobBody(
+    val content: String,
+    // encoding 默认值也必须发出去：GitHub 默认按 utf-8 存，会损坏 base64 内容
+    @EncodeDefault val encoding: String = "base64",
+)
 
 @Serializable
 data class GitTreeEntry(
     val path: String,
-    val mode: String = "100644",
-    val type: String = "blob",
+    // mode/type 默认值也必须发出去，否则 GitHub 报 "Must supply a valid tree.mode"
+    @EncodeDefault val mode: String = "100644",
+    @EncodeDefault val type: String = "blob",
     val sha: String,
 )
 

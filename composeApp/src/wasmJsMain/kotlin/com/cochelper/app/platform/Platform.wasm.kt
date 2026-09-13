@@ -88,6 +88,8 @@ actual suspend fun httpRequest(
         credentials = "same-origin".toJsString().unsafeCast<RequestCredentials>(),
         mode = "cors".toJsString().unsafeCast<RequestMode>(),
         redirect = "follow".toJsString().unsafeCast<RequestRedirect>(),
+        // referrerPolicy 在 kotlinx-browser 0.5.0 里是 JsAny?（无枚举类），用 JsString 传合法枚举值
+        referrerPolicy = "strict-origin-when-cross-origin".toJsString(),
     )
     val response: Response = window.fetch(url, init).await()
     val text = response.text().await<JsString>().toString()

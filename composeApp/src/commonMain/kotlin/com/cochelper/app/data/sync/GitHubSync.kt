@@ -26,6 +26,8 @@ data class GithubRepo(
 data class GithubContent(
     val sha: String? = null,
     val content: String? = null,
+    val size: Long? = null,
+    @SerialName("download_url") val downloadUrl: String? = null,
 )
 
 @Serializable
@@ -99,17 +101,35 @@ class GitHubSync {
         }
 
     suspend fun pullBackup(token: String, repoFullName: String): Result<BackupPayload> = runCatching {
-        val content = fetchContent(token, repoFullName, backupPath)
-            ?: error("云端尚未有备份数据")
-        val decoded = base64Decode(content.content.orEmpty()).decodeToString()
-        json.decodeFromString(BackupPayload.serializer(), decoded)
+        readBackup(token, repoFullName) ?: error("云端尚未有备份数据")
     }
 
     /** 拉取云端快照；云端还没有备份文件时返回 null（供合并用，而非报错）。 */
-    suspend fun fetchBackup(token: String, repoFullName: String): BackupPayload? {
-        val content = fetchContent(token, repoFullName, backupPath) ?: return null
-        val decoded = base64Decode(content.content.orEmpty()).decodeToString()
-        return json.decodeFromString(BackupPayload.serializer(), decoded)
+    suspend fun fetchBackup(token: String, repoFullName: String): BackupPayload? =
+        readBackup(token, repoFullName)
+
+    /**
+     * 读取并解析云端备份。content 字段为空时有两种情况：
+     * - 空文件（0 字节）→ 视为「无备份」，返回 null；
+     * - 超过 1MB 的大文件（GitHub 不在 content 里返回内容）→ 走 [GithubContent.downloadUrl] 取原始内容。
+     */
+    private suspend fun readBackup(token: String, repoFullName: String): BackupPayload? {
+        val file = fetchContent(token, repoFullName, backupPath) ?: return null
+        val raw = if (file.content.isNullOrBlank()) {
+            if (file.size == null || file.size == 0L) return null
+            val url = file.downloadUrl ?: return null
+            val resp = httpRequest("GET", url, headers(token))
+            if (resp.status !in 200..299) error("读取云端备份失败 HTTP ${resp.status}")
+            resp.body
+        } else {
+            base64Decode(file.content!!).decodeToString()
+        }
+        if (raw.isBlank()) return null
+        return try {
+            json.decodeFromString(BackupPayload.serializer(), raw)
+        } catch (t: Throwable) {
+            throw IllegalArgumentException("云端备份解析失败（size=${file.size}）：${t.message}")
+        }
     }
 
     private suspend fun fetchContent(token: String, repoFullName: String, path: String): GithubContent? {

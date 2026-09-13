@@ -59,8 +59,8 @@ actual suspend fun compressImageDataUrl(dataUrl: String, maxDimension: Int, qual
         val scale = minOf(1f, maxDimension.toFloat() / maxOf(w, h).toFloat())
         val nw = maxOf(1, (w * scale).toInt())
         val nh = maxOf(1, (h * scale).toInt())
-        // 无需缩放时保留原图，避免重编码画质劣化
-        if (nw == w && nh == h) return dataUrl
+        // 已足够小且本身就是 JPEG 时才保留原图；否则（PNG 等、或需缩放）一律重编码为 JPEG 压体积
+        if (nw == w && nh == h && dataUrl.startsWith("data:image/jpeg")) return dataUrl
         val surface = Surface.makeRasterN32Premul(nw, nh)
         surface.canvas.drawImageRect(image, Rect.makeWH(nw.toFloat(), nh.toFloat()))
         val data = surface.makeImageSnapshot().encodeToData(EncodedImageFormat.JPEG, (quality * 100).toInt().coerceIn(0, 100)) ?: return dataUrl

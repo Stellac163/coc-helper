@@ -15,6 +15,7 @@ import com.cochelper.app.data.local.PcDao
 import com.cochelper.app.data.local.TimelineDao
 import com.cochelper.app.data.sync.BackupPayload
 import com.cochelper.app.data.sync.GitHubSync
+import com.cochelper.app.data.sync.isEmptyData
 import com.cochelper.app.data.sync.mergeBackups
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
@@ -74,7 +75,10 @@ class AppContainer(
             val local = exportBackup()
             val remote = github.fetchBackup(token, full)
             val merged = if (remote == null) local else mergeBackups(local, remote)
-            github.pushBackup(token, full, merged).getOrThrow()
+            // 合并结果是空数据时不推云端：防止「空设备」在读取失败时把云端已有备份抹成空文件
+            if (!merged.isEmptyData()) {
+                github.pushBackup(token, full, merged).getOrThrow()
+            }
             importBackup(merged)
             "已同步"
         }

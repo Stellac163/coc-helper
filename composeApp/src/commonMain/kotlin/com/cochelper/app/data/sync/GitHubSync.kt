@@ -1,5 +1,6 @@
 package com.cochelper.app.data.sync
 
+import com.cochelper.app.platform.HttpResult
 import com.cochelper.app.platform.base64Decode
 import com.cochelper.app.platform.base64Encode
 import com.cochelper.app.platform.httpRequest
@@ -116,8 +117,12 @@ class GitHubSync {
             val encoded = base64Encode(json.encodeToString(BackupPayload.serializer(), payload).encodeToByteArray())
             // Contents API 的 content（base64）上限约 1MB；超过则改走 Git Data API。
             if (encoded.length < 900_000) pushSmall(token, repoFullName, encoded)
-            else pushLarge(token, repoFullName, encoded)
+            else pushLargeWithRetry(token, repoFullName, encoded)
         }
+
+    /** 把非 2xx 的响应连同响应体一起抛出，便于定位（如 tree 422 的具体原因）。 */
+    private fun fail(step: String, resp: HttpResult): Nothing =
+        error("$step HTTP ${resp.status}：${resp.body.take(200)}")
 
     /** 小文件（≤1MB）直接走 Contents API。 */
     private suspend fun pushSmall(token: String, repoFullName: String, encoded: String) {
@@ -136,7 +141,23 @@ class GitHubSync {
             headers(token),
             body
         )
-        if (resp.status !in 200..299) error("上传失败 HTTP ${resp.status}")
+        if (resp.status !in 200..299) fail("上传", resp)
+    }
+
+    /** 大文件推送带重试：多端并发 push 时 ref 会被抢先推进，重试会重新拉取最新 ref 再提交。 */
+    private suspend fun pushLargeWithRetry(token: String, repoFullName: String, encoded: String) {
+        var lastError: Throwable? = null
+        repeat(3) { attempt ->
+            try {
+                pushLarge(token, repoFullName, encoded)
+                return
+            } catch (t: Throwable) {
+                lastError = t
+                println("[pushLarge] 第 ${attempt + 1} 次尝试失败：${t.message}")
+                if (attempt < 2) kotlinx.coroutines.delay(1200L * (attempt + 1))
+            }
+        }
+        throw lastError ?: IllegalStateException("pushLarge 失败")
     }
 
     /** 大文件（>1MB）走 Git Data API：blob → tree → commit → 更新 main 分支。 */
@@ -148,17 +169,17 @@ class GitHubSync {
             headers(token),
             json.encodeToString(GitBlobBody.serializer(), GitBlobBody(content = encoded))
         )
-        if (blobResp.status !in 200..299) error("创建 blob 失败 HTTP ${blobResp.status}")
+        if (blobResp.status !in 200..299) fail("创建 blob", blobResp)
         val blobSha = json.decodeFromString(GitShaResponse.serializer(), blobResp.body).sha
 
         // 2. 取 main 分支当前 commit
         val refResp = httpRequest("GET", "https://api.github.com/repos/$repoFullName/git/refs/heads/main", headers(token))
-        if (refResp.status !in 200..299) error("读取分支失败 HTTP ${refResp.status}")
+        if (refResp.status !in 200..299) fail("读取分支", refResp)
         val parentSha = json.decodeFromString(GitRefResponse.serializer(), refResp.body).`object`.sha
 
         // 3. 取 commit 的 tree
         val commitResp = httpRequest("GET", "https://api.github.com/repos/$repoFullName/git/commits/$parentSha", headers(token))
-        if (commitResp.status !in 200..299) error("读取提交失败 HTTP ${commitResp.status}")
+        if (commitResp.status !in 200..299) fail("读取提交", commitResp)
         val baseTree = json.decodeFromString(GitCommitInfoResponse.serializer(), commitResp.body).tree.sha
 
         // 4. 建 tree（替换/新增 backupPath）
@@ -171,7 +192,7 @@ class GitHubSync {
                 GitTreeBody(baseTree = baseTree, tree = listOf(GitTreeEntry(path = backupPath, sha = blobSha)))
             )
         )
-        if (treeResp.status !in 200..299) error("创建 tree 失败 HTTP ${treeResp.status}")
+        if (treeResp.status !in 200..299) fail("创建 tree（blob=$blobSha baseTree=$baseTree）", treeResp)
         val treeSha = json.decodeFromString(GitShaResponse.serializer(), treeResp.body).sha
 
         // 5. 建 commit
@@ -181,7 +202,7 @@ class GitHubSync {
             headers(token),
             json.encodeToString(GitCommitBody.serializer(), GitCommitBody(message = "sync: CocHelper backup", tree = treeSha, parents = listOf(parentSha)))
         )
-        if (newCommitResp.status !in 200..299) error("创建提交失败 HTTP ${newCommitResp.status}")
+        if (newCommitResp.status !in 200..299) fail("创建提交", newCommitResp)
         val newCommitSha = json.decodeFromString(GitShaResponse.serializer(), newCommitResp.body).sha
 
         // 6. 更新 main 分支 ref
@@ -191,7 +212,7 @@ class GitHubSync {
             headers(token),
             json.encodeToString(GitUpdateRefBody.serializer(), GitUpdateRefBody(sha = newCommitSha))
         )
-        if (updateResp.status !in 200..299) error("更新分支失败 HTTP ${updateResp.status}")
+        if (updateResp.status !in 200..299) fail("更新分支", updateResp)
     }
 
     suspend fun pullBackup(token: String, repoFullName: String): Result<BackupPayload> = runCatching {

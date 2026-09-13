@@ -28,3 +28,10 @@ data class BackupPayload(
     val chasePoints: List<ChasePointEntity> = emptyList(),
     val files: List<FileEntity> = emptyList(),
 )
+
+/** 是否一份「空备份」（所有实体列表均为空）。用于防止空设备覆盖云端已有数据。 */
+fun BackupPayload.isEmptyData(): Boolean =
+    modules.isEmpty() && timelineNodes.isEmpty() && locations.isEmpty() &&
+        npcs.isEmpty() && pcs.isEmpty() && clues.isEmpty() &&
+        combatants.isEmpty() && chaseParticipants.isEmpty() && chasePoints.isEmpty() &&
+        files.isEmpty()

@@ -1,5 +1,6 @@
 package com.cochelper.app.data.local
 
+import com.cochelper.app.data.IndexedDbBlobStore
 import com.cochelper.app.data.sync.BackupPayload
 import com.cochelper.app.platform.currentTimeMillis
 import com.cochelper.app.platform.nextId
@@ -19,7 +20,7 @@ import kotlinx.serialization.json.Json
  * 由于各 DAO 接口存在同名方法（getAll/deleteAll/observeAll 等）但返回类型不同，
  * 无法用一个类同时实现全部接口，故拆成多个内部类，共享同一个 state。
  */
-class InMemoryRepository private constructor(initial: BackupPayload) : BackupStore {
+class InMemoryRepository private constructor(initial: BackupPayload, private val blobStore: IndexedDbBlobStore?) : BackupStore {
 
     private val state = MutableStateFlow(initial)
     private val json = Json { ignoreUnknownKeys = true }
@@ -33,8 +34,8 @@ class InMemoryRepository private constructor(initial: BackupPayload) : BackupSto
         persist()
     }
 
-    private fun persist() {
-        val encoded = json.encodeToString(BackupPayload.serializer(), state.value)
+    private fun writeLocal(payload: BackupPayload) {
+        val encoded = json.encodeToString(BackupPayload.serializer(), payload)
         try {
             window.localStorage.setItem(STORAGE_KEY, encoded)
         } catch (e: Throwable) {
@@ -44,7 +45,27 @@ class InMemoryRepository private constructor(initial: BackupPayload) : BackupSto
         }
     }
 
-    private fun mutate(block: (BackupPayload) -> BackupPayload) {
+    /** 落盘：大字段（文件/照片）进 IndexedDB，结构化小数据进 localStorage；IndexedDB 不可用时整份回退 localStorage。 */
+    private suspend fun persist() {
+        val full = state.value
+        val store = blobStore
+        if (store == null) {
+            writeLocal(full)
+            return
+        }
+        // 先写 IndexedDB（大字段），成功后再写「瘦」localStorage；
+        // IndexedDB 失败则退回整份写 localStorage，避免「瘦」快照先落盘、blob 却写失败导致丢内容。
+        val idbWritten = try {
+            store.putAll(full.blobMap())
+            true
+        } catch (t: Throwable) {
+            println("[persist] IndexedDB 写入失败，退回 localStorage 全量：${t.message}")
+            false
+        }
+        writeLocal(if (idbWritten) full.stripped() else full)
+    }
+
+    private suspend fun mutate(block: (BackupPayload) -> BackupPayload) {
         state.update(block)
         persist()
         _changes.tryEmit(Unit)
@@ -298,8 +319,8 @@ class InMemoryRepository private constructor(initial: BackupPayload) : BackupSto
     companion object {
         private const val STORAGE_KEY = "cochelper_data_v1"
 
-        fun load(): InMemoryRepository {
-            val initial = runCatching {
+        suspend fun load(): InMemoryRepository {
+            val base = runCatching {
                 val raw = window.localStorage.getItem(STORAGE_KEY)
                 if (raw.isNullOrBlank()) {
                     BackupPayload()
@@ -307,7 +328,41 @@ class InMemoryRepository private constructor(initial: BackupPayload) : BackupSto
                     Json { ignoreUnknownKeys = true }.decodeFromString(BackupPayload.serializer(), raw)
                 }
             }.getOrElse { BackupPayload() }
-            return InMemoryRepository(initial)
+
+            val store = IndexedDbBlobStore.open()
+            val full = if (store == null) {
+                // 无 IndexedDB：localStorage 里存的就是全量（旧行为，受 5MB 限制）。
+                base
+            } else {
+                // 有 IndexedDB：用其中的 blob 回填「瘦」快照；回填失败则退回原样。
+                runCatching { base.hydrated(store.getAll()) }.getOrElse { base }
+            }
+            return InMemoryRepository(full, store)
         }
     }
 }
+
+private fun fileKey(id: Long) = "file_$id"
+private fun modulePhotoKey(id: Long) = "modulePhoto_$id"
+private fun pcImageKey(id: Long) = "pcImage_$id"
+
+/** 抽取需要搬进 IndexedDB 的大字段（key → base64 内容）。 */
+private fun BackupPayload.blobMap(): Map<String, String> = buildMap {
+    for (f in files) if (f.contentBase64.isNotEmpty()) put(fileKey(f.id), f.contentBase64)
+    for (m in modules) if (m.photoUri.isNotEmpty()) put(modulePhotoKey(m.id), m.photoUri)
+    for (p in pcs) if (p.imageUri.isNotEmpty()) put(pcImageKey(p.id), p.imageUri)
+}
+
+/** 剥离大字段后的「瘦」快照，用于写 localStorage。 */
+private fun BackupPayload.stripped(): BackupPayload = copy(
+    files = files.map { if (it.contentBase64.isNotEmpty()) it.copy(contentBase64 = "") else it },
+    modules = modules.map { if (it.photoUri.isNotEmpty()) it.copy(photoUri = "") else it },
+    pcs = pcs.map { if (it.imageUri.isNotEmpty()) it.copy(imageUri = "") else it },
+)
+
+/** 用 IndexedDB 里的 blob 回填瘦快照，得到完整快照。 */
+private fun BackupPayload.hydrated(blobs: Map<String, String>): BackupPayload = copy(
+    files = files.map { f -> blobs[fileKey(f.id)]?.let { f.copy(contentBase64 = it) } ?: f },
+    modules = modules.map { m -> blobs[modulePhotoKey(m.id)]?.let { m.copy(photoUri = it) } ?: m },
+    pcs = pcs.map { p -> blobs[pcImageKey(p.id)]?.let { p.copy(imageUri = it) } ?: p },
+)

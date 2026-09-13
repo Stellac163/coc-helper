@@ -29,7 +29,11 @@ import org.w3c.fetch.Response
 actual fun base64Encode(bytes: ByteArray): String = Base64.Default.encode(bytes)
 
 @OptIn(ExperimentalEncodingApi::class)
-actual fun base64Decode(s: String): ByteArray = Base64.Default.decode(s)
+actual fun base64Decode(s: String): ByteArray =
+    // GitHub Contents API 返回的 content 是带换行的 base64（每 60 字符折行一次），
+    // 严格解码器遇到换行会报 "prohibited after the pad character"；
+    // 先剔除所有空白再解码（对齐 JS 的 atob 行为，空白会被忽略）。
+    Base64.Default.decode(s.filterNot { it.isWhitespace() })
 
 @OptIn(kotlin.time.ExperimentalTime::class)
 actual fun currentTimeMillis(): Long =

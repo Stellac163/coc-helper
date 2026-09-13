@@ -76,7 +76,7 @@ class GitHubSync {
     private val json = Json { ignoreUnknownKeys = true }
 
     private fun headers(token: String): Map<String, String> = mapOf(
-        "Authorization" to "Bearer $token",
+        "Authorization" to "Bearer ${token.trim()}",
         "Accept" to "application/vnd.github+json",
         "X-GitHub-Api-Version" to "2022-11-28",
         "Content-Type" to "application/json",
@@ -85,7 +85,10 @@ class GitHubSync {
     /** 校验 token 并返回登录用户信息。 */
     suspend fun getUser(token: String): Result<GithubUser> = runCatching {
         val resp = httpRequest("GET", "https://api.github.com/user", headers(token))
-        if (resp.status !in 200..299) error("HTTP ${resp.status}")
+        if (resp.status !in 200..299) {
+            val hint = if (resp.status == 401) "令牌无效或已过期，请重新生成并粘贴" else "HTTP ${resp.status}"
+            error("$hint：${resp.body.take(200)}")
+        }
         json.decodeFromString(GithubUser.serializer(), resp.body)
     }
 

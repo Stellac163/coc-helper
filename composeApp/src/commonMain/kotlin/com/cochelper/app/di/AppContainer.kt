@@ -85,6 +85,15 @@ class AppContainer(
         backupStore.replaceAll(payload)
     }
 
+    /** 启动时若已配置 token，做一次双向同步，让本机打开即与云端对齐（多端一致的关键）。 */
+    suspend fun syncIfConfigured() {
+        val s = settings.settings.first()
+        val token = s.githubToken
+        if (token.isBlank()) return
+        syncWithCloud(token, s.repoName.ifBlank { "coc-helper-backup" })
+            .onFailure { println("[startupSync] 启动同步失败：${it.message}") }
+    }
+
     /** 监听本地变更，防抖 2 秒后若已配置 token 则自动双向同步（与 life-manager 的「改动即同步」一致）。 */
     @OptIn(FlowPreview::class)
     suspend fun autoSyncLoop() {

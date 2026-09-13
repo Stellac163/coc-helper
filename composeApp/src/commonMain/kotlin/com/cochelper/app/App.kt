@@ -53,6 +53,11 @@ fun App(container: AppContainer) {
         themeMode = container.settings.settings.first().themeMode
     }
 
+    // 启动时若已登录，先拉取-合并一次，保证多端「打开即对齐」（否则各端显示各自本地旧数据）
+    LaunchedEffect(Unit) {
+        container.syncIfConfigured()
+    }
+
     // 改动后防抖自动同步（token 未配置时自动跳过）
     LaunchedEffect(Unit) {
         container.autoSyncLoop()

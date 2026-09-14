@@ -21,17 +21,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
         with:
-          distribution: temurin
-          java-version: '17'
+          node-version: '20'
 
-      - name: Build web distribution
-        run: ./gradlew :composeApp:wasmJsBrowserDistribution --no-daemon
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Build web app
+        working-directory: web
+        run: npm run build
         env:
-          # CI 只需 wasmJs 的 :composeApp，跳过 Android 的 :app（避免无 SDK 报错）
-          WEB_ONLY: "true"
+          BASE_PATH: /coc-helper/
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
@@ -39,7 +42,7 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: composeApp/build/dist/wasmJs/productionExecutable
+          path: web/build
 
   deploy:
     needs: build

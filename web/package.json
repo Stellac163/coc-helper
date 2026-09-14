@@ -1,0 +1,24 @@
+{
+  "name": "coc-helper-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build && node scripts/make-404.mjs",
+    "preview": "vite preview",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "icons": "node scripts/gen-icons.mjs"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-static": "^3.0.8",
+    "@sveltejs/kit": "^2.16.0",
+    "@sveltejs/vite-plugin-svelte": "^4.0.4",
+    "@types/node": "^26.5.1",
+    "@vite-pwa/sveltekit": "^0.6.0",
+    "svelte": "^5.19.0",
+    "svelte-check": "^4.1.1",
+    "typescript": "^5.7.3",
+    "vite": "^5.4.14"
+  }
+}

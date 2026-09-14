@@ -1,6 +1,6 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
-  import { R } from '$lib/nav/routes';
+  import { R, relPath } from '$lib/nav/routes';
 
   const navItems = [
     { route: R.home, label: '模组', icon: 'home', iconOutline: 'home_outline' },
@@ -14,7 +14,7 @@
 
 <nav class="bottom-bar">
   {#each navItems as item (item.route)}
-    {@const selected = currentRoute === item.route}
+    {@const selected = currentRoute === relPath(item.route)}
     <button class="nav-item" class:active={selected} onclick={() => onNavigate(item.route)} aria-label={item.label}>
       <span class="indicator"><Icon name={selected ? item.icon : item.iconOutline} size={24} /></span>
       <span class="label">{item.label}</span>

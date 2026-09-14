@@ -1,27 +1,36 @@
 import { base } from '$app/paths';
 
-/** 路由表：与 Kotlin Routes 一一对应。 */
+/** 给应用内相对路径显式拼上 base 前缀。
+ *  SvelteKit 的 goto('/xxx') 会把以 '/' 开头的路径按「相对源站根」解析
+ *  （new URL('/xxx', document.baseURI)），从而丢掉 /coc-helper 前缀、跳成 404。
+ *  所以这里统一把 base 前缀加到 URL 上，保证跳转地址始终落在部署目录下。 */
+function withBase(p: string): string {
+  if (!base || base === '/') return p;
+  return p === '/' ? base : base + p;
+}
+
+/** 路由表：与 Kotlin Routes 一一对应（返回值已含 base 前缀，可直接传给 goto）。 */
 export const R = {
-  home: '/',
-  characters: '/characters',
-  dice: '/dice',
-  tools: '/tools',
-  clues: '/clues',
-  login: '/login',
-  combat: '/combat',
-  chase: '/chase',
-  timer: '/timer',
-  module: (id: number) => `/module/${id}`,
-  original: (id: number) => `/original/${id}`,
-  files: (id: number) => `/files/${id}`,
-  intro: (id: number) => `/intro/${id}`,
-  timeline: (id: number) => `/timeline/${id}`,
-  locations: (id: number) => `/locations/${id}`,
-  location: (id: number) => `/location/${id}`,
-  npcs: (id: number) => `/npcs/${id}`,
-  pcs: (id: number) => `/pcs/${id}`,
-  pc: (id: number, avatar = false) => `/pc/${id}?avatar=${avatar}`,
-  npc: (id: number) => `/npc/${id}`
+  home: withBase('/'),
+  characters: withBase('/characters'),
+  dice: withBase('/dice'),
+  tools: withBase('/tools'),
+  clues: withBase('/clues'),
+  login: withBase('/login'),
+  combat: withBase('/combat'),
+  chase: withBase('/chase'),
+  timer: withBase('/timer'),
+  module: (id: number) => withBase(`/module/${id}`),
+  original: (id: number) => withBase(`/original/${id}`),
+  files: (id: number) => withBase(`/files/${id}`),
+  intro: (id: number) => withBase(`/intro/${id}`),
+  timeline: (id: number) => withBase(`/timeline/${id}`),
+  locations: (id: number) => withBase(`/locations/${id}`),
+  location: (id: number) => withBase(`/location/${id}`),
+  npcs: (id: number) => withBase(`/npcs/${id}`),
+  pcs: (id: number) => withBase(`/pcs/${id}`),
+  pc: (id: number, avatar = false) => withBase(`/pc/${id}?avatar=${avatar}`),
+  npc: (id: number) => withBase(`/npc/${id}`)
 };
 
 /** 去掉 base 前缀，得到应用内相对路径（如 /coc-helper/characters → /characters）。 */

@@ -62,7 +62,7 @@
   const showTabBar = $derived(!isDesktop && tab !== '');
 
   function onNavigateTab(route: string) {
-    if (route !== currentRoute) goto(route);
+    if (relPath(route) !== currentRoute) goto(route);
   }
 
   // 路由变化时回到顶部（滚动容器 .app-content 跨路由持久存在）。

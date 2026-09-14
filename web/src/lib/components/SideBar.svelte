@@ -1,6 +1,6 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
-  import { R } from '$lib/nav/routes';
+  import { R, relPath } from '$lib/nav/routes';
 
   const navItems = [
     { route: R.home, label: '模组', icon: 'home', iconOutline: 'home_outline' },
@@ -15,7 +15,7 @@
 <aside class="sidebar">
   <div class="sidebar-title">COC 跑团助手</div>
   {#each navItems as item (item.route)}
-    {@const selected = currentRoute === item.route}
+    {@const selected = currentRoute === relPath(item.route)}
     <button class="nav-item" class:active={selected} onclick={() => onNavigate(item.route)}>
       <Icon name={selected ? item.icon : item.iconOutline} size={24} color={selected ? 'var(--on-secondary-container)' : 'var(--text-muted)'} />
       <span>{item.label}</span>

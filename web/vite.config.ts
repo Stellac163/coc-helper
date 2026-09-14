@@ -14,6 +14,12 @@ export default defineConfig({
     SvelteKitPWA({
       base,
       registerType: 'autoUpdate',
+      // SPA 模式（adapter-static + fallback: index.html）：把 index.html 预缓存进 SW，
+      // 并让导航请求回退到它，否则离线/深链刷新时 sw 里没有入口页、navigateFallback 失效。
+      kit: {
+        adapterFallback: 'index.html',
+        spa: true
+      },
       manifest: {
         name: 'COC 跑团助手',
         short_name: '跑团助手',

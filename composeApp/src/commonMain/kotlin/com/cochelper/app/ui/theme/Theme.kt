@@ -18,17 +18,19 @@ enum class ThemeMode { SYSTEM, LIGHT, DARK }
 /**
  * 应用默认字体族。网页版（wasmJs）用 CanvasKit 渲染，不含系统字体，
  * 必须显式打包中文字体，否则汉字会显示成空心方块（tofu）。
+ *
+ * 公开为单一来源：App 用它做预加载（FontFamily.Resolver.preload），
+ * 并把同一个实例传入 CocHelperTheme，确保预加载与渲染命中同一缓存条目。
  */
 @Composable
-private fun appFontFamily(): FontFamily = FontFamily(Font(Res.font.noto_sans_sc_regular))
+fun appFontFamily(): FontFamily = FontFamily(Font(Res.font.noto_sans_sc_regular))
 
 private fun TextStyle.withAppFont(fontFamily: FontFamily): TextStyle =
     copy(fontFamily = fontFamily)
 
 /** 基于 Material3 默认排版，把所有字重/字号样式统一替换为打包的中文字体。 */
 @Composable
-private fun appTypography(): Typography {
-    val fontFamily = appFontFamily()
+private fun appTypography(fontFamily: FontFamily): Typography {
     val base = Typography()
     return base.copy(
         displayLarge = base.displayLarge.withAppFont(fontFamily),
@@ -53,6 +55,7 @@ private fun appTypography(): Typography {
 @Composable
 fun CocHelperTheme(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
+    fontFamily: FontFamily? = null,
     content: @Composable () -> Unit,
 ) {
     val darkTheme = when (themeMode) {
@@ -64,7 +67,7 @@ fun CocHelperTheme(
 
     MaterialTheme(
         colorScheme = colorScheme,
-        typography = appTypography(),
+        typography = appTypography(fontFamily ?: appFontFamily()),
         content = content,
     )
 }

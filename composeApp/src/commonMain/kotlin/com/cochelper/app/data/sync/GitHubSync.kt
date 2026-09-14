@@ -1,5 +1,7 @@
 package com.cochelper.app.data.sync
 
+import com.cochelper.app.platform.HttpPhase
+import com.cochelper.app.platform.HttpProgress
 import com.cochelper.app.platform.HttpResult
 import com.cochelper.app.platform.base64Decode
 import com.cochelper.app.platform.base64Encode
@@ -132,12 +134,22 @@ class GitHubSync {
 
     private val backupPath = "cochelper_backup.json"
 
-    suspend fun pushBackup(token: String, repoFullName: String, payload: BackupPayload): Result<Unit> =
+    /** 只保留指定阶段（上传/下载）的进度回调，避免把响应的微小下载进度混进上传进度条（反之亦然）。 */
+    private fun ((HttpProgress) -> Unit)?.only(phase: HttpPhase): ((HttpProgress) -> Unit)? =
+        this?.let { cb -> { p -> if (p.phase == phase) cb(p) } }
+
+    suspend fun pushBackup(
+        token: String,
+        repoFullName: String,
+        payload: BackupPayload,
+        onProgress: ((HttpProgress) -> Unit)? = null,
+    ): Result<Unit> =
         runCatching {
             val encoded = base64Encode(json.encodeToString(BackupPayload.serializer(), payload).encodeToByteArray())
+            val up = onProgress.only(HttpPhase.UPLOAD)
             // Contents API 的 content（base64）上限约 1MB；超过则改走 Git Data API。
-            if (encoded.length < 900_000) pushSmall(token, repoFullName, encoded)
-            else pushLargeWithRetry(token, repoFullName, encoded)
+            if (encoded.length < 900_000) pushSmall(token, repoFullName, encoded, up)
+            else pushLargeWithRetry(token, repoFullName, encoded, up)
         }
 
     /** 把非 2xx 的响应连同响应体一起抛出，便于定位（如 tree 422 的具体原因）。 */
@@ -145,7 +157,7 @@ class GitHubSync {
         error("$step HTTP ${resp.status}：${resp.body.take(200)}")
 
     /** 小文件（≤1MB）直接走 Contents API。 */
-    private suspend fun pushSmall(token: String, repoFullName: String, encoded: String) {
+    private suspend fun pushSmall(token: String, repoFullName: String, encoded: String, onProgress: ((HttpProgress) -> Unit)?) {
         val existing = fetchContent(token, repoFullName, backupPath)
         val body = json.encodeToString(
             GithubPutBody.serializer(),
@@ -159,17 +171,18 @@ class GitHubSync {
             "PUT",
             "https://api.github.com/repos/$repoFullName/contents/$backupPath",
             headers(token),
-            body
+            body,
+            onProgress,
         )
         if (resp.status !in 200..299) fail("上传", resp)
     }
 
     /** 大文件推送带重试：多端并发 push 时 ref 会被抢先推进，重试会重新拉取最新 ref 再提交。 */
-    private suspend fun pushLargeWithRetry(token: String, repoFullName: String, encoded: String) {
+    private suspend fun pushLargeWithRetry(token: String, repoFullName: String, encoded: String, onProgress: ((HttpProgress) -> Unit)?) {
         var lastError: Throwable? = null
         repeat(3) { attempt ->
             try {
-                pushLarge(token, repoFullName, encoded)
+                pushLarge(token, repoFullName, encoded, onProgress)
                 return
             } catch (t: Throwable) {
                 lastError = t
@@ -181,13 +194,14 @@ class GitHubSync {
     }
 
     /** 大文件（>1MB）走 Git Data API：blob → tree → commit → 更新 main 分支。 */
-    private suspend fun pushLarge(token: String, repoFullName: String, encoded: String) {
+    private suspend fun pushLarge(token: String, repoFullName: String, encoded: String, onProgress: ((HttpProgress) -> Unit)?) {
         // 1. 创建 blob
         val blobResp = httpRequest(
             "POST",
             "https://api.github.com/repos/$repoFullName/git/blobs",
             headers(token),
-            json.encodeToString(GitBlobBody.serializer(), GitBlobBody(content = encoded))
+            json.encodeToString(GitBlobBody.serializer(), GitBlobBody(content = encoded)),
+            onProgress,
         )
         if (blobResp.status !in 200..299) fail("创建 blob", blobResp)
         val blobSha = json.decodeFromString(GitShaResponse.serializer(), blobResp.body).sha
@@ -235,8 +249,12 @@ class GitHubSync {
         if (updateResp.status !in 200..299) fail("更新分支", updateResp)
     }
 
-    suspend fun pullBackup(token: String, repoFullName: String): Result<BackupPayload> = runCatching {
-        readBackup(token, repoFullName) ?: error("云端尚未有备份数据")
+    suspend fun pullBackup(
+        token: String,
+        repoFullName: String,
+        onProgress: ((HttpProgress) -> Unit)? = null,
+    ): Result<BackupPayload> = runCatching {
+        readBackup(token, repoFullName, onProgress.only(HttpPhase.DOWNLOAD)) ?: error("云端尚未有备份数据")
     }
 
     /** 拉取云端快照；云端还没有备份文件时返回 null（供合并用，而非报错）。 */
@@ -248,12 +266,12 @@ class GitHubSync {
      * - 空文件（0 字节）→ 视为「无备份」，返回 null；
      * - 超过 1MB 的大文件（GitHub 不在 content 里返回内容）→ 用 Git Data API 的 blob 端点取内容。
      */
-    private suspend fun readBackup(token: String, repoFullName: String): BackupPayload? {
-        val file = fetchContent(token, repoFullName, backupPath) ?: return null
+    private suspend fun readBackup(token: String, repoFullName: String, onProgress: ((HttpProgress) -> Unit)? = null): BackupPayload? {
+        val file = fetchContent(token, repoFullName, backupPath, onProgress) ?: return null
         val raw = if (file.content.isNullOrBlank()) {
             val sha = file.sha
             if (sha == null || file.size == null || file.size == 0L) return null
-            fetchBlobContent(token, repoFullName, sha)
+            fetchBlobContent(token, repoFullName, sha, onProgress)
         } else {
             base64Decode(file.content!!).decodeToString()
         }
@@ -270,19 +288,25 @@ class GitHubSync {
      * 不走 Contents API 的 raw 媒体类型——那对 >1MB 文件会随 Accept 头是否被识别而退回
      * JSON 元数据，元数据被 ignoreUnknownKeys 静默解析成空 BackupPayload，导致本地被抹空。
      */
-    private suspend fun fetchBlobContent(token: String, repoFullName: String, sha: String): String {
+    private suspend fun fetchBlobContent(token: String, repoFullName: String, sha: String, onProgress: ((HttpProgress) -> Unit)? = null): String {
         val resp = httpRequest(
             "GET",
             "https://api.github.com/repos/$repoFullName/git/blobs/$sha",
             headers(token),
+            onProgress = onProgress,
         )
         if (resp.status !in 200..299) error("读取云端备份 blob 失败 HTTP ${resp.status}")
         val blob = json.decodeFromString(GitBlobResponse.serializer(), resp.body)
         return base64Decode(blob.content).decodeToString()
     }
 
-    private suspend fun fetchContent(token: String, repoFullName: String, path: String): GithubContent? {
-        val resp = httpRequest("GET", "https://api.github.com/repos/$repoFullName/contents/$path", headers(token))
+    private suspend fun fetchContent(
+        token: String,
+        repoFullName: String,
+        path: String,
+        onProgress: ((HttpProgress) -> Unit)? = null,
+    ): GithubContent? {
+        val resp = httpRequest("GET", "https://api.github.com/repos/$repoFullName/contents/$path", headers(token), onProgress = onProgress)
         if (resp.status == 404) return null
         if (resp.status !in 200..299) error("读取失败 HTTP ${resp.status}")
         return json.decodeFromString(GithubContent.serializer(), resp.body)

@@ -16,6 +16,7 @@ import com.cochelper.app.data.local.TimelineDao
 import com.cochelper.app.data.sync.BackupPayload
 import com.cochelper.app.data.sync.GitHubSync
 import com.cochelper.app.data.sync.isEmptyData
+import com.cochelper.app.platform.HttpProgress
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -64,23 +65,23 @@ class AppContainer(
         moduleDao.getById(moduleId)?.let { moduleDao.delete(it) }
     }
 
-    /** 上传：用本地整体覆盖云端（单向，不做合并）。 */
-    suspend fun uploadToCloud(token: String, repoName: String): Result<String> = runCatching {
+    /** 上传：用本地整体覆盖云端（单向，不做合并）。[onProgress] 可选，回传上传进度。 */
+    suspend fun uploadToCloud(token: String, repoName: String, onProgress: ((HttpProgress) -> Unit)? = null): Result<String> = runCatching {
         syncMutex.withLock {
             val full = github.ensureRepo(token, repoName).getOrThrow()
             val local = exportBackup()
             // 本地无数据时不上传，避免把云端已有备份抹成空文件
             if (local.isEmptyData()) return@withLock "本地无数据，未上传（以免清空云端）"
-            github.pushBackup(token, full, local).getOrThrow()
+            github.pushBackup(token, full, local, onProgress).getOrThrow()
             "已上传，云端已被本地覆盖"
         }
     }
 
-    /** 恢复：用云端整体覆盖本地（单向，不做合并）。 */
-    suspend fun restoreFromCloud(token: String, repoName: String): Result<String> = runCatching {
+    /** 恢复：用云端整体覆盖本地（单向，不做合并）。[onProgress] 可选，回传下载进度。 */
+    suspend fun restoreFromCloud(token: String, repoName: String, onProgress: ((HttpProgress) -> Unit)? = null): Result<String> = runCatching {
         syncMutex.withLock {
             val full = github.ensureRepo(token, repoName).getOrThrow()
-            val payload = github.pullBackup(token, full).getOrThrow()
+            val payload = github.pullBackup(token, full, onProgress).getOrThrow()
             importBackup(payload)
             "已从云端恢复，本地已被覆盖"
         }

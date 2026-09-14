@@ -24,10 +24,21 @@ expect suspend fun compressImageDataUrl(dataUrl: String, maxDimension: Int, qual
 
 data class HttpResult(val status: Int, val body: String)
 
-/** 发起一次 HTTP 请求，返回状态码与响应体。网络失败时抛异常。 */
+/** 上传/下载阶段。 */
+enum class HttpPhase { UPLOAD, DOWNLOAD }
+
+/** 一次进度事件：[loaded] 已传输字节数，[total] 总字节数（total<=0 表示总量未知）。 */
+data class HttpProgress(val phase: HttpPhase, val loaded: Long, val total: Long)
+
+/** 发起一次 HTTP 请求，返回状态码与响应体。网络失败时抛异常。
+ *  [onProgress] 可选，请求进行中回调上传/下载进度。 */
 expect suspend fun httpRequest(
     method: String,
     url: String,
     headers: Map<String, String> = emptyMap(),
     body: String? = null,
+    onProgress: ((HttpProgress) -> Unit)? = null,
 ): HttpResult
+
+/** 移除 index.html 里的全屏启动加载遮罩（网页版启动动画）。无遮罩时静默忽略。 */
+expect fun hideAppLoadingOverlay()

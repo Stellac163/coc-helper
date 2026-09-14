@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -47,6 +48,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.collectAsState
 import androidx.navigation.NavHostController
 import com.cochelper.app.data.AppSettings
+import com.cochelper.app.platform.HttpPhase
+import com.cochelper.app.platform.HttpProgress
 import com.cochelper.app.platform.compressImageDataUrl
 import com.cochelper.app.ui.LocalContainer
 import com.cochelper.app.ui.components.LoadedImage
@@ -65,6 +68,7 @@ fun LoginScreen(navController: NavHostController) {
     var repoName by remember { mutableStateOf(settings.repoName) }
     var nickname by remember { mutableStateOf(settings.nickname) }
     var loading by remember { mutableStateOf(false) }
+    var progress by remember { mutableStateOf<HttpProgress?>(null) }
 
     fun notify(msg: String) = scope.launch { snackbar.showSnackbar(msg) }
 
@@ -91,24 +95,28 @@ fun LoginScreen(navController: NavHostController) {
     fun upload() {
         scope.launch {
             loading = true
+            progress = null
             val repo = repoName.ifBlank { "coc-helper-backup" }
             container.settings.setRepoName(repo)
-            container.uploadToCloud(token, repo).onSuccess { msg ->
+            container.uploadToCloud(token, repo) { progress = it }.onSuccess { msg ->
                 notify(msg)
             }.onFailure { notify("上传失败：${it.message}") }
             loading = false
+            progress = null
         }
     }
 
     fun restore() {
         scope.launch {
             loading = true
+            progress = null
             val repo = repoName.ifBlank { "coc-helper-backup" }
             container.settings.setRepoName(repo)
-            container.restoreFromCloud(token, repo).onSuccess { msg ->
+            container.restoreFromCloud(token, repo) { progress = it }.onSuccess { msg ->
                 notify(msg)
             }.onFailure { notify("恢复失败：${it.message}") }
             loading = false
+            progress = null
         }
     }
 
@@ -197,6 +205,10 @@ fun LoginScreen(navController: NavHostController) {
                 }
             }
 
+            if (loading) {
+                SyncProgressBar(progress)
+            }
+
             Button(
                 onClick = { doLogin() },
                 enabled = token.isNotBlank() && !loading,
@@ -241,6 +253,41 @@ fun LoginScreen(navController: NavHostController) {
                     Text("退出登录")
                 }
             }
+        }
+    }
+}
+
+/** 上传/下载进度条：有总字节数时显示百分比，否则显示不确定态。 */
+@Composable
+private fun SyncProgressBar(progress: HttpProgress?) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (progress != null && progress.total > 0) {
+            LinearProgressIndicator(
+                progress = { (progress.loaded.toFloat() / progress.total.toFloat()).coerceIn(0f, 1f) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp),
+            )
+            val verb = if (progress.phase == HttpPhase.UPLOAD) "上传" else "下载"
+            Text(
+                text = "${verb}中 ${(progress.loaded * 100 / progress.total).toInt()}%",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            LinearProgressIndicator(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp),
+            )
+            Text(
+                text = "处理中…",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

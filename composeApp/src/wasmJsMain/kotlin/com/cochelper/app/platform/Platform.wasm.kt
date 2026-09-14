@@ -2,10 +2,11 @@ package com.cochelper.app.platform
 
 import kotlin.js.JsArray
 import kotlin.js.JsAny
-import kotlin.js.JsString
-import kotlin.js.toJsString
+import kotlinx.browser.document
 import kotlinx.browser.window
 import kotlinx.coroutines.await
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 import org.jetbrains.skia.EncodedImageFormat
@@ -17,13 +18,8 @@ import org.khronos.webgl.DataView
 import org.w3c.dom.url.URL
 import org.w3c.files.Blob
 import org.w3c.files.BlobPropertyBag
-import org.w3c.fetch.Headers
-import org.w3c.fetch.RequestCache
-import org.w3c.fetch.RequestCredentials
-import org.w3c.fetch.RequestInit
-import org.w3c.fetch.RequestMode
-import org.w3c.fetch.RequestRedirect
 import org.w3c.fetch.Response
+import org.w3c.xhr.XMLHttpRequest
 
 @OptIn(ExperimentalEncodingApi::class)
 actual fun base64Encode(bytes: ByteArray): String = Base64.Default.encode(bytes)
@@ -78,33 +74,50 @@ actual suspend fun httpRequest(
     url: String,
     headers: Map<String, String>,
     body: String?,
+    onProgress: ((HttpProgress) -> Unit)?,
 ): HttpResult {
-    val h = Headers()
-    headers.forEach { (k, v) -> h.append(k, v) }
-    // Kotlin/Wasm 用 RequestInit(...) 构造时会把未指定的枚举字段（cache 等）置为 null，
-    // 浏览器 fetch 会拒绝 null 的枚举值（"null is not a valid enum value of type RequestCache"）。
-    // 显式补上各枚举字段的合法默认值即可。
-    val init = RequestInit(
-        method = method,
-        headers = h,
-        body = body?.toJsString(),
-        cache = "default".toJsString().unsafeCast<RequestCache>(),
-        credentials = "same-origin".toJsString().unsafeCast<RequestCredentials>(),
-        mode = "cors".toJsString().unsafeCast<RequestMode>(),
-        redirect = "follow".toJsString().unsafeCast<RequestRedirect>(),
-        // referrerPolicy 在 kotlinx-browser 0.5.0 里是 JsAny?（无枚举类），用 JsString 传合法枚举值
-        referrerPolicy = "strict-origin-when-cross-origin".toJsString(),
-    )
+    // 用 XMLHttpRequest 而非 fetch：fetch 拿不到上传进度（upload.onprogress），
+    // 而 XHR 同时提供上传（upload.onprogress）与下载（onprogress）进度事件。
     println("[http] $method $url")
-    val response: Response = try {
-        window.fetch(url, init).await()
-    } catch (t: Throwable) {
-        // 浏览器 fetch 因 CORS/断网等 reject 时只抛 "Failed to fetch"，不带 URL；
-        // 这里补上 method+url，方便定位到底是哪个请求失败。
-        throw RuntimeException("fetch $method $url 失败：${t.message}")
+    return suspendCancellableCoroutine { cont ->
+        val xhr = XMLHttpRequest()
+        xhr.open(method, url)
+        headers.forEach { (k, v) -> xhr.setRequestHeader(k, v) }
+
+        xhr.onload = {
+            cont.resume(HttpResult(xhr.status.toInt(), xhr.responseText))
+        }
+        xhr.onerror = {
+            // 断网 / CORS 拦截等网络级失败只在这里触发；HTTP 4xx/5xx 走 onload 由上层判断。
+            cont.resumeWith(Result.failure(RuntimeException("fetch $method $url 失败（网络错误或被 CORS 拦截）")))
+        }
+        xhr.onabort = {
+            cont.resumeWith(Result.failure(RuntimeException("fetch $method $url 已中止")))
+        }
+
+        if (onProgress != null) {
+            xhr.upload.onprogress = { e ->
+                if (e.lengthComputable) {
+                    onProgress(HttpProgress(HttpPhase.UPLOAD, e.loaded.toDouble().toLong(), e.total.toDouble().toLong()))
+                }
+            }
+            xhr.onprogress = { e ->
+                if (e.lengthComputable) {
+                    onProgress(HttpProgress(HttpPhase.DOWNLOAD, e.loaded.toDouble().toLong(), e.total.toDouble().toLong()))
+                }
+            }
+        }
+
+        cont.invokeOnCancellation { xhr.abort() }
+
+        xhr.send(body ?: "")
     }
-    val text = response.text().await<JsString>().toString()
-    return HttpResult(response.status.toInt(), text)
+}
+
+actual fun hideAppLoadingOverlay() {
+    document.getElementById("app-loading")?.let { el ->
+        el.parentNode?.removeChild(el)
+    }
 }
 
 actual suspend fun toBlobUrl(mimeType: String, base64: String): String {

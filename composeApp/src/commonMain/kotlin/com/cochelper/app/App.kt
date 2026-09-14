@@ -32,8 +32,14 @@ import com.cochelper.app.ui.navigation.AppNavHost
 import com.cochelper.app.ui.navigation.BrowserBackHandler
 import com.cochelper.app.ui.theme.CocHelperTheme
 import com.cochelper.app.ui.theme.ThemeMode
+import com.cochelper.app.generated.resources.Res
+import com.cochelper.app.generated.resources.noto_sans_sc_regular
+import com.cochelper.app.platform.hideAppLoadingOverlay
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.ExperimentalResourceApi
+import org.jetbrains.compose.resources.preloadFont
 
 /** 手机窄屏时限制为手机宽度居中显示。 */
 private val MOBILE_MAX_WIDTH = 480.dp
@@ -44,10 +50,22 @@ private val DESKTOP_BREAKPOINT = 720.dp
 private val DESKTOP_CONTENT_MAX = 960.dp
 
 /** 网页版根 Composable。 */
+@OptIn(ExperimentalResourceApi::class)
 @Composable
 fun App(container: AppContainer) {
     var themeMode by remember { mutableStateOf(ThemeMode.SYSTEM) }
     val scope = rememberCoroutineScope()
+
+    // 预加载中文字体：就绪前 index.html 的全屏加载遮罩一直盖住画面，避免汉字先显示成空心方块（tofu）。
+    val appFont by preloadFont(Res.font.noto_sans_sc_regular)
+    LaunchedEffect(appFont) {
+        if (appFont != null) hideAppLoadingOverlay()
+    }
+    // 兜底：字体加载异常/超时也不至于永久卡在加载页。
+    LaunchedEffect(Unit) {
+        delay(15_000)
+        hideAppLoadingOverlay()
+    }
 
     LaunchedEffect(Unit) {
         themeMode = container.settings.settings.first().themeMode
